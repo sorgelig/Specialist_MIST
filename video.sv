@@ -48,7 +48,8 @@ module video
 	input			  we,
 	
 	// Misc signals
-	input	  [2:0] color,
+	input	  [7:0] color,
+	input	        mx,
 	input         bw_mode
 );
 
@@ -76,7 +77,7 @@ always @(posedge clk_8) begin
 	if(hc == 463) HSync  <= 0;
 end
 
-wire [10:0] vram_o;
+wire [15:0] vram_o;
 dpram vram
 (
 	.clock(clk_ram),
@@ -88,24 +89,42 @@ dpram vram
 );
 
 reg [7:0] bmp;
-reg [2:0] rgb;
+reg [7:0] rgb;
+reg       blank;
 
 always @(negedge clk_8) begin
 	bmp <= {bmp[6:0], 1'b0};
 	if(!hc[2:0] & ~(hc[8] & hc[7]) & ~vc[8]) {rgb, bmp} <= vram_o;
+	blank <= (hc[8] & hc[7]) | vc[8];
 end
 
-wire [5:0] R_out;
-wire [5:0] G_out;
-wire [5:0] B_out;
+wire [5:0] R_in,  G_in,  B_in;
+wire [5:0] R_out, G_out, B_out;
+
+always_comb begin
+	casex({blank, bw_mode, mx})
+		3'b1XX: {R_in,G_in,B_in} = {18{1'b0}};
+		2'b01X: {R_in,G_in,B_in} = {18{bmp[7]}};
+		2'b000: begin
+			R_in = {6{bmp[7] & rgb[6]}};
+			G_in = {6{bmp[7] & rgb[5]}};
+			B_in = {6{bmp[7] & rgb[4]}};
+		end
+		2'b001: begin
+			R_in = bmp[7] ? {{2{rgb[6]}}, {4{rgb[7]}}} : {{2{rgb[2]}}, {4{rgb[3]}}};
+			G_in = bmp[7] ? {{2{rgb[5]}}, {4{rgb[7]}}} : {{2{rgb[1]}}, {4{rgb[3]}}};
+			B_in = bmp[7] ? {{2{rgb[4]}}, {4{rgb[7]}}} : {{2{rgb[0]}}, {4{rgb[3]}}};
+		end
+	endcase
+end
 
 osd #(10'd0, 10'd0, 3'd4) osd
 (
 	.*,
 	.clk_pix(clk_8),
-	.R_in({6{bmp[7] & (bw_mode | rgb[1])}}),
-	.G_in({6{bmp[7] & (bw_mode | rgb[2])}}),
-	.B_in({6{bmp[7] & (bw_mode | rgb[0])}})
+	.R_in(R_in),
+	.G_in(G_in),
+	.B_in(B_in)
 );
 
 wire hs_out, vs_out;

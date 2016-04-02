@@ -96,10 +96,10 @@ always@(posedge sck, posedge ss) begin
 		if((cmd == UIO_FILE_TX) && (cnt == 15)) begin
 			// prepare 
 			if(sdi) begin
-				addr <= 25'h100000;
-				downloading_reg <= 1'b1; 
+				addr <= (new_index) ? 25'h100000 : 25'h10000;
+				downloading_reg <= 1;
 			end else begin
-				downloading_reg <= 1'b0; 
+				downloading_reg <= 0;
 				if(new_index) begin
 					waddr <= addr;
 					//erase_trigger <= 1;
