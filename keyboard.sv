@@ -15,19 +15,19 @@
 
 module keyboard
 (
-	input         clk,
-	input         reset,
-	input         ps2_clk,
-	input         ps2_dat,
+	input           clk,
+	input           reset,
+	input           ps2_clk,
+	input           ps2_dat,
 
-	input         mx,
-	input   [5:0] row_in,
-	output [11:0] col_out,
-	input  [11:0] col_in,
-	output  [5:0] row_out,
-	output        nr,
+	input           mx,
+	input     [5:0] row_in,
+	output   [11:0] col_out,
+	input    [11:0] col_in,
+	output    [5:0] row_out,
+	output          nr,
 
-	output reg    reset_key
+	output reg[1:0] reset_key
 );
 
 assign nr = ~knr;
@@ -188,7 +188,7 @@ always @(*) begin
 end
 
 always @(posedge clk) begin
-	reg mctrl;
+	reg mctrl, malt;
 	reg old_reset;
 
 	old_reset <= reset;
@@ -203,12 +203,13 @@ always @(posedge clk) begin
 		if (prev_clk==4'b1) begin
 			if (kdata[11]==1'b1 && ^kdata[10:2]==1'b1 && kdata[1:0]==2'b1) begin
 				shift_reg <= 12'hFFF;
-				if (kcode==8'h14) mctrl  <= ~unpress;
-				if (kcode==8'h78) reset_key <= mctrl & ~unpress;
-				if (kcode==8'hF0) unpress <= 1;
+				if (kcode==8'h14) mctrl     <= ~unpress;
+				if (kcode==8'h11) malt      <= ~unpress;
+				if (kcode==8'h78) reset_key <= {malt & ~unpress, (malt | mctrl) & ~unpress};
+				if (kcode==8'hF0) unpress   <= 1;
 				else begin
 					unpress <= 0;
-					if(r != 4'hF) begin
+					if(~mctrl & (r != 4'hF)) begin
 						if(r == 4'hC) knr <= ~unpress;
 						else begin 
 							col_state[c][r] <= ~unpress;

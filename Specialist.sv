@@ -62,11 +62,11 @@ wire  [7:0] ioctl_data;
 wire        ioctl_download;
 wire  [4:0] ioctl_index;
 
-mist_io #(.STRLEN(77)) user_io 
+mist_io #(.STRLEN(101)) user_io 
 (
 	.conf_str
 	(
-	     "SPMX;RKS;F3,ODI;O1,Color,On,Off;O2,Model,Original,MX;O4,Turbo,Off,On;T6,Reset"
+	     "SPMX;RKS;F3,ODI;O1,Color,On,Off;O2,Model,Original,MX;O3,Disk (for MX),On,Off;O4,Turbo,Off,On;T6,Reset"
 	),
 	.SPI_SCK(SPI_SCK),
 	.CONF_DATA0(CONF_DATA0),
@@ -143,15 +143,20 @@ end
 ////////////////////   RESET   ////////////////////
 reg [3:0] reset_cnt;
 reg       reset = 1;
-wire      RESET = status[0] | status[6] | buttons[1] | reset_key;
+wire      RESET = status[0] | status[6] | buttons[1] | reset_key[0];
 integer   initRESET = 50000000;
 
 always @(posedge clk_sys) begin
-	if ((!RESET && reset_cnt==4'd14) && !initRESET)
+	reg flg;
+	if ((!RESET && reset_cnt==4'd14) && !initRESET) begin
 		reset <= 0;
-	else begin
+		flg   <= 0;
+	end else begin
 		if(initRESET && !ioctl_download) initRESET <= initRESET - 1;
-		mx <= status[2];
+		mx  <= status[2];
+		mxd <= ~status[3];
+		if(!flg) mxm <= reset_key[1];
+		flg   <= 1;
 		reset <= 1;
 		reset_cnt <= reset_cnt+4'd1;
 	end
@@ -182,25 +187,38 @@ always @(negedge clk_sys, posedge reset, posedge io_reset) begin
 		page <= 0;
 	end else begin
 		old_wr <= cpu_wr_n;
-		if(old_wr & ~cpu_wr_n & page_sel) begin
+		if(old_wr & ~cpu_wr_n & page_sel & mxd & ~mxm) begin
 			casex(addrbus[1:0])
 				2'b00: page <= 4'd0;
 				2'b01: page <= 4'd2 + cpu_o[2:0];
 				2'b1X: page <= 4'd1;
 			endcase
 		end
-		if(~mx & addrbus[15]) page <= 0;
+		if(~(mx & mxd & ~mxm) & addrbus[15]) page <= 0;
 	end
 end
 
 reg [24:0] ram_addr;
 always_comb begin
-	casex({mx, base_sel, rom_sel, fdd_read})
-		4'b0X00: ram_addr = addrbus;
-		4'b0X10: ram_addr = {8'h1C, addrbus[11:0]};
-		4'b10X0: ram_addr = {page,  addrbus};
-		4'b11X0: ram_addr = addrbus;
-		4'bXXX1: ram_addr = {1'b1,  fdd_addr};
+	casex({mx, mxd, mxm, base_sel, rom_sel, fdd_read})
+		//original
+		6'b0XX_X00: ram_addr = addrbus;
+		6'b0XX_X10: ram_addr = {8'h1C, addrbus[11:0]};
+
+		//MX without disk
+		6'b10X_X00: ram_addr = addrbus;
+		6'b10X_X10: ram_addr = {8'h1D, addrbus[11:0]};
+
+		//MX with disk
+		6'b110_0X0: ram_addr = {page,  addrbus};
+		6'b110_1X0: ram_addr = addrbus;
+
+		//MX with disk restarted into diskless mode with current BIOS
+		6'b111_X00: ram_addr = addrbus;
+		6'b111_X10: ram_addr = {8'h0C, addrbus[11:0]};
+
+		//FDD data read
+		6'bXXX_XX1: ram_addr = {1'b1,  fdd_addr};
 	endcase
 end
 
@@ -216,6 +234,8 @@ reg rom_sel;
 reg fdd_sel;
 reg fdd2_sel;
 reg mx;
+reg mxd;
+reg mxm;
 
 always_comb begin
 	ppi1_sel = 0;
@@ -228,26 +248,28 @@ always_comb begin
 	fdd_sel  = 0;
 	fdd2_sel = 0;
 	cpu_i    = 255;
-	casex({mx, romp, addrbus})
+	casex({mx, mxd & ~mxm, romp, addrbus})
 
 		//MX
-		18'b1_1_0XXXXXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
-		18'b1_1_10XXXXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
-		18'b1_X_11111111_110XXXXX: begin cpu_i = ram_o;  base_sel = 1;    end
-		18'b1_X_11111111_111000XX: begin cpu_i = ppi1_o; ppi1_sel = 1;    end
-		18'b1_X_11111111_111001XX: begin cpu_i = ppi2_o; ppi2_sel = 1;    end
-		18'b1_X_11111111_111010XX: begin cpu_i = fdd_o;  fdd_sel  = 1;    end
-		18'b1_X_11111111_111011XX: begin cpu_i = pit_o;  pit_sel  = 1;    end
-		18'b1_X_11111111_111100XX: begin                 fdd2_sel = 1;    end
-		18'b1_X_11111111_111101XX: begin                                  end
-		18'b1_X_11111111_111110XX: begin                 pal_sel  = 1;    end
-		18'b1_X_11111111_111111XX: begin                 page_sel = 1;    end
+		'b11_1_0XXXXXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
+		'b11_1_10XXXXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
+		'b10_1_0000XXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
+		'b10_X_1100XXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
+		'b1X_X_11111111_110XXXXX: begin cpu_i = ram_o;  base_sel = 1;    end
+		'b1X_X_11111111_111000XX: begin cpu_i = ppi1_o; ppi1_sel = 1;    end
+		'b1X_X_11111111_111001XX: begin cpu_i = ppi2_o; ppi2_sel = 1;    end
+		'b1X_X_11111111_111010XX: begin cpu_i = fdd_o;  fdd_sel  = 1;    end
+		'b1X_X_11111111_111011XX: begin cpu_i = pit_o;  pit_sel  = 1;    end
+		'b1X_X_11111111_111100XX: begin                 fdd2_sel = 1;    end
+		'b1X_X_11111111_111101XX: begin                                  end
+		'b1X_X_11111111_111110XX: begin                 pal_sel  = 1;    end
+		'b1X_X_11111111_111111XX: begin                 page_sel = 1;    end
 
 		//Original
-		18'b0_1_0000XXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
-		18'b0_X_1100XXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
-		18'b0_X_11110XXX_XXXXXXXX: begin cpu_i = ppi2_o; ppi2_sel = 1;    end
-		18'b0_X_11111XXX_XXXXXXXX: begin cpu_i = ppi1_o; ppi1_sel = 1;    end
+		'b0X_1_0000XXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
+		'b0X_X_1100XXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
+		'b0X_X_11110XXX_XXXXXXXX: begin cpu_i = ppi2_o; ppi2_sel = 1;    end
+		'b0X_X_11111XXX_XXXXXXXX: begin cpu_i = ppi1_o; ppi1_sel = 1;    end
 
 								default: begin cpu_i = ram_o;  base_sel = romp; end
 	endcase
@@ -297,7 +319,10 @@ video video
 	.bw_mode(status[1])
 );
 
-always @(negedge cpu_wr_n) if(pal_sel) color_mx <= cpu_o;
+always @(negedge cpu_wr_n, posedge reset, posedge io_reset) begin
+	if(reset | io_reset) color_mx <= 8'hF0;
+		else if(pal_sel) color_mx <= cpu_o;
+end
 
 
 //////////////////   KEYBOARD   ///////////////////
@@ -306,7 +331,7 @@ wire [11:0] col_out;
 wire [11:0] col_in;
 wire  [5:0] row_out;
 wire        nr;
-wire        reset_key;
+wire  [1:0] reset_key;
 
 keyboard kbd
 (
