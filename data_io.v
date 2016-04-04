@@ -52,7 +52,7 @@ reg [24:0] addr;
 reg [24:0] waddr;
 reg [24:0] write_a = 25'h200000;
 reg [24:0] erase_addr = 0;
-reg        rclk = 1'b0;
+reg        rclk = 0;
 reg        erase_trigger;
 reg        erasing = 0;
 reg [24:0] erase_mask;
@@ -68,11 +68,13 @@ assign index = new_index;
 
 // data_io has its own SPI interface to the io controller
 always@(posedge sck, posedge ss) begin
-	if(ss == 1'b1)
+	reg skip;
+
+	if(ss)
 		cnt <= 5'd0;
 	else begin
-		rclk <= 1'b0;
-		erase_trigger <= 1'b0;
+		rclk <= 0;
+		erase_trigger <= 0;
 
 		// don't shift in last bit. It is evaluated directly
 		// when writing to ram
@@ -80,60 +82,58 @@ always@(posedge sck, posedge ss) begin
 
 		// increase target address after write
 		if(rclk) begin
-			addr <= addr + 25'd1;
-			if(addr == 25'h100003) addr <= start_addr;
+			addr <= addr + 1'd1;
+			if(skip & (addr == 3)) begin
+				addr <= start_addr;
+				skip <= 0;
+			end
 		end
 
 		// count 0-7 8-15 8-15 ... 
-		if(cnt < 15) cnt <= cnt + 4'd1;
-			else cnt <= 4'd8;
+		if(cnt < 15) cnt <= cnt + 1'd1;
+			else cnt <= 8;
 
 		// finished command byte
-      if(cnt == 7)
-			cmd <= {sbuf, sdi};
+      if(cnt == 7) cmd <= {sbuf, sdi};
 
 		// prepare/end transmission
 		if((cmd == UIO_FILE_TX) && (cnt == 15)) begin
 			// prepare 
 			if(sdi) begin
-				addr <= (new_index) ? 25'h100000 : 25'h10000;
+				skip <= 0;
+				case(new_index)
+					0: addr <= 25'h010000;
+					2: addr <= 25'h100000;
+					1: {addr,skip} <= 1;
+					default: ;
+				endcase
 				downloading_reg <= 1;
 			end else begin
 				downloading_reg <= 0;
-				if(new_index) begin
-					waddr <= addr;
-					//erase_trigger <= 1;
-				end
+				waddr <= addr + 1'b1;
+				if(!new_index) erase_trigger <= 1;
 			end
 		end
 
 		// command 0x54: UIO_FILE_TX
 		if((cmd == UIO_FILE_TX_DAT) && (cnt == 15)) begin
-			if(addr == 25'h100000) begin
-				start_addr[15:8] <= {sbuf, sdi};
-				data <= 8'hC3;
-				write_a <= 0;
-			end else if(addr == 25'h100001) begin
-				data <= {sbuf, sdi};
-				start_addr[7:0] <= {sbuf, sdi};
-				write_a <= 1;
-			end else if(addr == 25'h100002) begin
-				data <= start_addr[15:8];
-				write_a <= 2;
-			end else begin
-				write_a <= addr;
-				data <= {sbuf, sdi};
-			end
-			rclk <= 1'b1;
+			case({addr, skip})
+				3'b001: {data, start_addr[15:8]} <= {8'hC3, sbuf, sdi};
+				3'b011: {data, start_addr[7:0]}  <= {sbuf, sdi, sbuf, sdi};
+				3'b101:  data                    <=  start_addr[15:8];
+			  default:  data                    <= {sbuf, sdi};
+			endcase
+			write_a <= addr;
+			rclk <= 1;
 		end
-		
+
       // expose file (menu) index
       if((cmd == UIO_FILE_INDEX) && (cnt == 15))
 			new_index <= {sbuf[3:0], sdi};
 	end
 end
 
-wire [24:0] next_addr = (erase_addr + 25'd1) & erase_mask;
+wire [24:0] next_addr = (erase_addr + 1'd1) & erase_mask;
 
 always@(posedge clk) begin
 	reg rclkD, rclkD2;
@@ -153,8 +153,8 @@ always@(posedge clk) begin
 	if(eraseD && !eraseD2) begin
 		erase_clk_div <= 0;
 		erase_addr <= waddr;
-		erase_mask <= 25'hFFFF;
-		end_addr <= start_addr;
+		erase_mask <= 25'hFFFFF;
+		end_addr <= 0;
 		erasing <= 1;
 	end else begin
 		erase_clk_div <= erase_clk_div + 5'd1;
