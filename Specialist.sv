@@ -174,10 +174,12 @@ sram sram
 
 reg [3:0] page = 1;
 wire      romp = (page == 1);
-always @(negedge clk_sys, posedge reset) begin
+always @(negedge clk_sys, posedge reset, posedge io_reset) begin
 	reg old_wr;
 	if(reset) begin
 		page <= 1;
+	end else if(io_reset) begin
+		page <= 0;
 	end else begin
 		old_wr <= cpu_wr_n;
 		if(old_wr & ~cpu_wr_n & page_sel) begin
@@ -260,12 +262,14 @@ wire        cpu_rd;
 wire        cpu_wr_n;
 reg         cpu_hold = 0;
 
+wire        io_reset = (ioctl_download && (ioctl_index==1)); //reset while RKS loading
+
 k580vm80a cpu
 (
    .pin_clk(clk_sys),
    .pin_f1(ce_f1),
    .pin_f2(ce_f2),
-   .pin_reset(reset || (ioctl_download && (ioctl_index==1))),
+   .pin_reset(reset | io_reset),
    .pin_a(addrbus),
    .pin_dout(cpu_o),
    .pin_din(cpu_i),

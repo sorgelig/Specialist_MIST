@@ -562,8 +562,8 @@ always@(posedge SPI_SCK, posedge SPI_SS2) begin
 		// command 0x54: UIO_FILE_TX
 		if((cmd == UIO_FILE_TX_DAT) && (cnt == 15)) begin
 			case({laddr, skip})
-				3'b001: {data, start_addr[15:8]} <= {8'hC3, sbuf, SPI_DI};
-				3'b011: {data, start_addr[7:0]}  <= {sbuf, SPI_DI, sbuf, SPI_DI};
+				3'b001: {data, start_addr[7:0]}  <= {8'hC3,           sbuf, SPI_DI};
+				3'b011: {data, start_addr[15:8]} <= {start_addr[7:0], sbuf, SPI_DI};
 				3'b101:  data                    <=  start_addr[15:8];
 			  default:  data                    <= {sbuf, SPI_DI};
 			endcase
