@@ -50,12 +50,19 @@ module Specialist
 assign LED = ~(ioctl_download | fdd_rd);
 
 ///////////////////   ARM I/O   //////////////////
-wire [7:0] status;
-wire [1:0] buttons;
-wire scandoubler_disable;
-wire ps2_kbd_clk, ps2_kbd_data;
+wire  [7:0] status;
+wire  [1:0] buttons;
+wire        scandoubler_disable;
+wire        ps2_kbd_clk;
+wire        ps2_kbd_data;
 
-user_io #(.STRLEN(77)) user_io 
+wire        ioctl_wr;
+wire [24:0] ioctl_addr;
+wire  [7:0] ioctl_data;
+wire        ioctl_download;
+wire  [4:0] ioctl_index;
+
+mist_io #(.STRLEN(77)) user_io 
 (
 	.conf_str
 	(
@@ -63,6 +70,7 @@ user_io #(.STRLEN(77)) user_io
 	),
 	.SPI_SCK(SPI_SCK),
 	.CONF_DATA0(CONF_DATA0),
+	.SPI_SS2(SPI_SS2),
 	.SPI_DO(SPI_DO),
 	.SPI_DI(SPI_DI),
 
@@ -72,7 +80,15 @@ user_io #(.STRLEN(77)) user_io
 
 	.ps2_clk(ce_ps2),
 	.ps2_kbd_clk(ps2_kbd_clk),
-	.ps2_kbd_data(ps2_kbd_data)
+	.ps2_kbd_data(ps2_kbd_data),
+
+	.io_download(ioctl_download),
+	.io_index(ioctl_index),
+
+	.io_clk(clk_io),
+	.io_wr(ioctl_wr),
+	.io_addr(ioctl_addr),
+	.io_dout(ioctl_data)
 );
 
 
@@ -433,27 +449,5 @@ always @(posedge clk_sys, posedge reset) begin
 		if(fdd_drq | ~fdd_busy) cpu_hold <= 0;
 	end
 end
-
-//////////////////   LOADER   //////////////////
-wire        ioctl_wr;
-wire [24:0] ioctl_addr;
-wire  [7:0] ioctl_data;
-wire        ioctl_download;
-wire  [4:0] ioctl_index;
-
-data_io data_io
-(
-	.sck(SPI_SCK),
-	.ss(SPI_SS2),
-	.sdi(SPI_DI),
-
-	.downloading(ioctl_download),
-	.index(ioctl_index),
-
-	.clk(clk_io),
-	.wr(ioctl_wr),
-	.a(ioctl_addr),
-	.d(ioctl_data)
-);
 
 endmodule
