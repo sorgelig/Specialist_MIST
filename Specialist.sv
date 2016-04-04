@@ -47,6 +47,7 @@ module Specialist
    output        SDRAM_CKE
 );
 
+assign LED = ~(ioctl_download | fdd_rd);
 
 ///////////////////   ARM I/O   //////////////////
 wire [7:0] status;
@@ -54,11 +55,11 @@ wire [1:0] buttons;
 wire scandoubler_disable;
 wire ps2_kbd_clk, ps2_kbd_data;
 
-user_io #(.STRLEN(70)) user_io 
+user_io #(.STRLEN(77)) user_io 
 (
 	.conf_str
 	(
-	     "SPMX;RKS;O1,Color,On,Off;O2,Model,Original,MX;O4,Turbo,Off,On;T6,Reset"
+	     "SPMX;RKS;F3,ODI;O1,Color,On,Off;O2,Model,Original,MX;O4,Turbo,Off,On;T6,Reset"
 	),
 	.SPI_SCK(SPI_SCK),
 	.CONF_DATA0(CONF_DATA0),
@@ -174,13 +175,14 @@ always @(negedge clk_sys, posedge reset) begin
 	end
 end
 
-reg [19:0] ram_addr;
+reg [24:0] ram_addr;
 always_comb begin
-	casex({mx, base_sel, rom_sel})
-		3'b0X0: ram_addr = addrbus;
-		3'b0X1: ram_addr = {8'h1C, addrbus[11:0]};
-		3'b10X: ram_addr = {page,  addrbus};
-		3'b11X: ram_addr = addrbus;
+	casex({mx, base_sel, rom_sel, fdd_read})
+		4'b0X00: ram_addr = addrbus;
+		4'b0X10: ram_addr = {8'h1C, addrbus[11:0]};
+		4'b10X0: ram_addr = {page,  addrbus};
+		4'b11X0: ram_addr = addrbus;
+		4'bXXX1: ram_addr = {1'b1,  fdd_addr};
 	endcase
 end
 
@@ -193,6 +195,8 @@ reg pal_sel;
 reg page_sel;
 reg base_sel;
 reg rom_sel;
+reg fdd_sel;
+reg fdd2_sel;
 reg mx;
 
 always_comb begin
@@ -203,6 +207,8 @@ always_comb begin
 	page_sel = 0;
 	base_sel = 0;
 	rom_sel  = 0;
+	fdd_sel  = 0;
+	fdd2_sel = 0;
 	cpu_i    = 255;
 	casex({mx, romp, addrbus})
 
@@ -212,10 +218,10 @@ always_comb begin
 		18'b1_X_11111111_110XXXXX: begin cpu_i = ram_o;  base_sel = 1;    end
 		18'b1_X_11111111_111000XX: begin cpu_i = ppi1_o; ppi1_sel = 1;    end
 		18'b1_X_11111111_111001XX: begin cpu_i = ppi2_o; ppi2_sel = 1;    end
-		18'b1_X_11111111_111010XX: begin                                  end //floppy
+		18'b1_X_11111111_111010XX: begin cpu_i = fdd_o;  fdd_sel  = 1;    end
 		18'b1_X_11111111_111011XX: begin cpu_i = pit_o;  pit_sel  = 1;    end
-		18'b1_X_11111111_111100XX: begin                                  end //floppy ext
-		18'b1_X_11111111_111101XX: begin                                  end //reserved
+		18'b1_X_11111111_111100XX: begin                 fdd2_sel = 1;    end
+		18'b1_X_11111111_111101XX: begin                                  end
 		18'b1_X_11111111_111110XX: begin                 pal_sel  = 1;    end
 		18'b1_X_11111111_111111XX: begin                 page_sel = 1;    end
 
@@ -236,18 +242,19 @@ reg   [7:0] cpu_i;
 wire  [7:0] cpu_o;
 wire        cpu_rd;
 wire        cpu_wr_n;
+reg         cpu_hold = 0;
 
 k580vm80a cpu
 (
    .pin_clk(clk_sys),
    .pin_f1(ce_f1),
    .pin_f2(ce_f2),
-   .pin_reset(reset | ioctl_download),
+   .pin_reset(reset || (ioctl_download && (ioctl_index==1))),
    .pin_a(addrbus),
    .pin_dout(cpu_o),
    .pin_din(cpu_i),
-   .pin_hold(0),
-   .pin_ready(1),
+   .pin_hold(cpu_hold),
+   .pin_ready(~(ioctl_download && (ioctl_index==2))),
    .pin_int(0),
    .pin_dbin(cpu_rd),
    .pin_wr_n(cpu_wr_n)
@@ -360,6 +367,73 @@ k580vi53 pit
 );
 
 
+/////////////////////   FDD   /////////////////////
+wire  [7:0] fdd_o;
+wire [19:0] fdd_addr;
+reg  [19:0] fdd_size;
+reg         fdd_drive;
+reg         fdd_side;
+reg         fdd_ready = 0;
+wire        fdd_rd;
+wire        fdd_drq;
+wire        fdd_busy;
+
+always @(negedge ioctl_download) begin 
+	if(ioctl_index == 2) begin 
+		fdd_ready <= 1;
+		fdd_size  <= ioctl_addr[19:0];
+	end
+end
+
+wire fdd_read = fdd_rd & fdd_sel;
+
+wd1793 fdd
+(
+	.clk(ce_f1),
+	.reset(reset),
+	.rd(cpu_rd & fdd_sel),
+	.wr(~cpu_wr_n & fdd_sel),
+	.addr(addrbus[1:0]),
+	.idata(cpu_o),
+	.odata(fdd_o),
+	.drq(fdd_drq),
+	.busy(fdd_busy),
+
+	.buff_size(fdd_size),
+	.buff_addr(fdd_addr),
+	.buff_read(fdd_rd),
+	.buff_idata(ram_o),
+	
+	.size_code(3),
+	.side(fdd_side),
+	.ready(fdd_drive ? 1'b0 : fdd_ready)
+);
+
+wire fdd2_we = ~cpu_wr_n & fdd2_sel;
+always @(posedge clk_sys, posedge reset) begin
+	reg old_we;
+
+	if(reset) begin
+		fdd_side  <= 0;
+		fdd_drive <= 0;
+		cpu_hold  <= 0;
+		old_we    <= 0;
+	end else begin
+		old_we   <= fdd2_we;
+
+		if(~old_we & fdd2_we) begin
+			case(addrbus[1:0])
+				0: cpu_hold  <= 1;
+				2: fdd_side  <= cpu_o[0];
+				3: fdd_drive <= cpu_o[0];
+				default: ;
+			endcase
+		end
+
+		if(fdd_drq | ~fdd_busy) cpu_hold <= 0;
+	end
+end
+
 //////////////////   LOADER   //////////////////
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
@@ -381,7 +455,5 @@ data_io data_io
 	.a(ioctl_addr),
 	.d(ioctl_data)
 );
-
-assign LED = ~ioctl_download;
 
 endmodule
