@@ -209,9 +209,9 @@ always @(posedge clk) begin
 				if (kcode==8'hF0) unpress   <= 1;
 				else begin
 					unpress <= 0;
-					if(~mctrl & (r != 4'hF)) begin
+					if((~mctrl | unpress) & (r != 4'hF)) begin
 						if(r == 4'hC) knr <= ~unpress;
-						else begin 
+						else begin
 							col_state[c][r] <= ~unpress;
 							row_state[r][c] <= ~unpress;
 						end
