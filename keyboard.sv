@@ -27,6 +27,7 @@ module keyboard
 	output    [5:0] row_out,
 	output          nr,
 
+	output reg      color_key,
 	output reg[1:0] reset_key
 );
 
@@ -58,8 +59,6 @@ assign row_out =~((row_state[0]  & {6{~col_in[0]}})|
 
 reg  [2:0] c;
 reg  [3:0] r;
-reg        unpress;
-reg  [3:0] prev_clk;
 reg [11:0] shift_reg;
 
 wire[11:0] kdata = {ps2_dat,shift_reg[11:1]};
@@ -190,7 +189,10 @@ end
 always @(posedge clk) begin
 	reg mctrl, malt;
 	reg old_reset;
+	reg unpress;
+	reg [3:0] prev_clk;
 
+	color_key <= 0;
 	old_reset <= reset;
 	if(!old_reset && reset) begin
 		prev_clk <= 0;
@@ -205,7 +207,7 @@ always @(posedge clk) begin
 				shift_reg <= 12'hFFF;
 				if (kcode==8'h14) mctrl     <= ~unpress;
 				if (kcode==8'h11) malt      <= ~unpress;
-				if (kcode==8'h78) reset_key <= {malt & ~unpress, (malt | mctrl) & ~unpress};
+				if (kcode==8'h78) {color_key, reset_key} <= {~(malt | mctrl) & ~unpress, malt & ~unpress, (malt | mctrl) & ~unpress};
 				if (kcode==8'hF0) unpress   <= 1;
 				else begin
 					unpress <= 0;

@@ -61,12 +61,15 @@ wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_data;
 wire        ioctl_download;
 wire  [4:0] ioctl_index;
+wire        rom_load = (ioctl_download && (ioctl_index==0));
+wire        rks_load = (ioctl_download && (ioctl_index==1));
+wire        odi_load = (ioctl_download && (ioctl_index==2));
 
-mist_io #(.STRLEN(101)) user_io 
+mist_io #(.STRLEN(85)) user_io 
 (
 	.conf_str
 	(
-	     "SPMX;RKS;F3,ODI;O1,Color,On,Off;O2,Model,Original,MX;O3,Disk (for MX),On,Off;O4,Turbo,Off,On;T6,Reset"
+	     "SPMX;RKS;F3,ODI;O2,Model,Original,MX;O3,Disk (for MX),On,Off;O4,Turbo,Off,On;T6,Reset"
 	),
 	.SPI_SCK(SPI_SCK),
 	.CONF_DATA0(CONF_DATA0),
@@ -141,24 +144,17 @@ end
 
 
 ////////////////////   RESET   ////////////////////
-reg [3:0] reset_cnt;
-reg       reset = 1;
-wire      RESET = status[0] | status[6] | buttons[1] | reset_key[0];
-integer   initRESET = 50000000;
+reg       reset = 0;
+reg [7:0] mon;
 
 always @(posedge clk_sys) begin
-	reg flg;
-	if ((!RESET && reset_cnt==4'd14) && !initRESET) begin
-		reset <= 0;
-		flg   <= 0;
-	end else begin
-		if(initRESET && !ioctl_download) initRESET <= initRESET - 1;
-		mx  <= status[2];
-		mxd <= ~status[3];
-		if(!flg) mxm <= reset_key[1];
-		flg   <= 1;
+	if(status[0] | status[6] | buttons[1] | reset_key[0] | rom_load) begin
+		mx    <=  status[2];
+		mxd   <= ~status[3] & ~reset_key[1];
+		mon   <= ~status[2] ? 8'h1C : (~status[3] & reset_key[1]) ? 8'h0C : 8'h1D;
 		reset <= 1;
-		reset_cnt <= reset_cnt+4'd1;
+	end else begin
+		reset <= 0;
 	end
 end
 
@@ -179,46 +175,38 @@ sram sram
 
 reg [3:0] page = 1;
 wire      romp = (page == 1);
-always @(negedge clk_sys, posedge reset, posedge io_reset) begin
+always @(posedge clk_sys, posedge reset, posedge rks_load) begin
 	reg old_wr;
 	if(reset) begin
 		page <= 1;
-	end else if(io_reset) begin
+	end else if(rks_load) begin
 		page <= 0;
 	end else begin
 		old_wr <= cpu_wr_n;
-		if(old_wr & ~cpu_wr_n & page_sel & mxd & ~mxm) begin
+		if(old_wr & ~cpu_wr_n & page_sel & mxd) begin
 			casex(addrbus[1:0])
 				2'b00: page <= 4'd0;
 				2'b01: page <= 4'd2 + cpu_o[2:0];
 				2'b1X: page <= 4'd1;
 			endcase
 		end
-		if(~(mx & mxd & ~mxm) & addrbus[15]) page <= 0;
+		if(~(mx & mxd) & addrbus[15]) page <= 0;
 	end
 end
 
 reg [24:0] ram_addr;
 always_comb begin
-	casex({mx, mxd, mxm, base_sel, rom_sel, fdd_read})
-		//original
-		6'b0XX_X00: ram_addr = addrbus;
-		6'b0XX_X10: ram_addr = {8'h1C, addrbus[11:0]};
+	casex({mxd, base_sel, rom_sel, fdd_read})
+		//without disk
+		4'b0_X00: ram_addr = addrbus;
+		4'b0_X10: ram_addr = {mon,  addrbus[11:0]};
 
-		//MX without disk
-		6'b10X_X00: ram_addr = addrbus;
-		6'b10X_X10: ram_addr = {8'h1D, addrbus[11:0]};
+		//with disk
+		4'b1_1X0: ram_addr = addrbus;
+		4'b1_0X0: ram_addr = {page, addrbus};
 
-		//MX with disk
-		6'b110_0X0: ram_addr = {page,  addrbus};
-		6'b110_1X0: ram_addr = addrbus;
-
-		//MX with disk restarted into diskless mode with current BIOS
-		6'b111_X00: ram_addr = addrbus;
-		6'b111_X10: ram_addr = {8'h0C, addrbus[11:0]};
-
-		//FDD data read
-		6'bXXX_XX1: ram_addr = {1'b1,  fdd_addr};
+		//FDD data
+		4'bX_XX1: ram_addr = {1'b1, fdd_addr};
 	endcase
 end
 
@@ -235,7 +223,6 @@ reg fdd_sel;
 reg fdd2_sel;
 reg mx;
 reg mxd;
-reg mxm;
 
 always_comb begin
 	ppi1_sel = 0;
@@ -248,7 +235,7 @@ always_comb begin
 	fdd_sel  = 0;
 	fdd2_sel = 0;
 	cpu_i    = 255;
-	casex({mx, mxd & ~mxm, romp, addrbus})
+	casex({mx, mxd, romp, addrbus})
 
 		//MX
 		'b11_1_0XXXXXXX_XXXXXXXX: begin cpu_i = ram_o;  rom_sel  = 1;    end
@@ -271,7 +258,7 @@ always_comb begin
 		'b0X_X_11110XXX_XXXXXXXX: begin cpu_i = ppi2_o; ppi2_sel = 1;    end
 		'b0X_X_11111XXX_XXXXXXXX: begin cpu_i = ppi1_o; ppi1_sel = 1;    end
 
-								default: begin cpu_i = ram_o;  base_sel = romp; end
+							  default: begin cpu_i = ram_o;  base_sel = romp; end
 	endcase
 end
 
@@ -284,19 +271,17 @@ wire        cpu_rd;
 wire        cpu_wr_n;
 reg         cpu_hold = 0;
 
-wire        io_reset = (ioctl_download && (ioctl_index==1)); //reset while RKS loading
-
 k580vm80a cpu
 (
    .pin_clk(clk_sys),
    .pin_f1(ce_f1),
    .pin_f2(ce_f2),
-   .pin_reset(reset | io_reset),
+   .pin_reset(reset | rks_load),
    .pin_a(addrbus),
    .pin_dout(cpu_o),
    .pin_din(cpu_i),
    .pin_hold(cpu_hold),
-   .pin_ready(~(ioctl_download && (ioctl_index==2))),
+   .pin_ready(~odi_load),
    .pin_int(0),
    .pin_dbin(cpu_rd),
    .pin_wr_n(cpu_wr_n)
@@ -306,23 +291,23 @@ k580vm80a cpu
 ////////////////////   VIDEO   ////////////////////
 wire [2:0] color;
 reg  [7:0] color_mx;
+reg        bw_mode;
 video video
 (
 	.*,
-	
 	.clk_pix(ce_pix),
-
 	.addr(addrbus),
 	.din(cpu_o),
 	.we(~cpu_wr_n && !page),
-	.color(mx ? color_mx : {1'b0, ~color[1], ~color[2], ~color[0], 4'b0000}),
-	.bw_mode(status[1])
+	.color(mx ? color_mx : {1'b0, ~color[1], ~color[2], ~color[0], 4'b0000})
 );
 
-always @(negedge cpu_wr_n, posedge reset, posedge io_reset) begin
-	if(reset | io_reset) color_mx <= 8'hF0;
+always @(negedge cpu_wr_n, posedge reset, posedge rks_load) begin
+	if(reset | rks_load) color_mx <= 8'hF0;
 		else if(pal_sel) color_mx <= cpu_o;
 end
+
+always @(posedge color_key) bw_mode <= ~bw_mode;
 
 
 //////////////////   KEYBOARD   ///////////////////
@@ -332,6 +317,7 @@ wire [11:0] col_in;
 wire  [5:0] row_out;
 wire        nr;
 wire  [1:0] reset_key;
+wire        color_key;
 
 keyboard kbd
 (
