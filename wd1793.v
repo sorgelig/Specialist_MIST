@@ -113,7 +113,6 @@ parameter STATE_WRITE_2		= 9;	/* Host-to-buffer: wr = 0, next addr -> STATE_WRIT
 parameter STATE_WRITESECT	= 10; /* Host-to-buffer: wait data from host -> STATE_WRITE_1 */
 parameter STATE_READSECT	= 11; /* Buffer-to-host */
 parameter STATE_WAIT_2		= 12;
-parameter STATE_READSEEK	= 13;
 parameter STATE_ENDCOMMAND	= 14; /* All commands end here -> STATE_ENDCOMMAND2 */
 
 // State variables
@@ -163,10 +162,6 @@ always @* begin
 	endcase
 end
 
-// Timer for keeping DRQ pace
-reg   [3:0] read_timer;
-reg   [7:0] seektimer;
-
 reg         buff_rd;
 reg         buff_wr;
 
@@ -182,6 +177,10 @@ always @(posedge clk or posedge reset) begin
 	reg read_data, write_data;
 	reg read_type;
 	integer wait_time;
+
+	// Timer for keeping DRQ pace
+	reg   [3:0] read_timer;
+	reg   [9:0] seektimer;
 
 	if(reset) begin
 		read_data <= 0;
@@ -202,6 +201,7 @@ always @(posedge clk or posedge reset) begin
 		s_drq_busy <= 2'b00;
 		wdstat_pending <= 0;
 		watchdog_set <= 0;
+		seektimer <= 10'h3FF;
 	end else begin
 		old_wr <=wr;
 		old_rd <=rd;
@@ -362,20 +362,14 @@ always @(posedge clk or posedge reset) begin
 
 		STATE_WAIT_READ:
 			begin
-				seektimer <= 100;
-				state <= STATE_READSEEK; 
-			end
-
-		STATE_READSEEK:
-			begin
-				if(seektimer) seektimer <= seektimer - 1'b1;
-				else begin
-					if (!ready) begin
-						// FAIL
-						s_seekerr <= 1;
-						s_crcerr <= 1;
-						state <= STATE_ENDCOMMAND;
-					end else begin
+				if (!ready) begin
+					// FAIL
+					s_seekerr <= 1;
+					s_crcerr <= 1;
+					state <= STATE_ENDCOMMAND;
+				end else begin
+					seektimer <= seektimer - 1'b1;
+					if(!seektimer) begin
 						if(wdstat_multisector && (wdstat_sector > sectors_per_track)) begin
 							if(wdstat_multisector) s_seekerr <= 1;
 							wdstat_multisector <= 1'b0;
@@ -514,6 +508,7 @@ always @(posedge clk or posedge reset) begin
 				{buff_rd,buff_wr} <= 0;
 				state <= STATE_READY;
 				s_drq_busy <= 2'b00;
+				seektimer <= 10'h3FF;
 			end
 		endcase
 	end
