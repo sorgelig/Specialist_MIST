@@ -68,16 +68,16 @@ wire [7:0] kcode = kdata[9:2];
    5    5MX  4   3   2   1   0
 0  CLS  CLS  -=  :*  .>  ЗБ  ВК    
 1  NEG  NEG  0   ХH  Э\  /?  ПС
-2  POS  POS  9)  ЗZ  ЖV  ,<  ->
+2  POS  POS  9)  ЗZ  ЖV  ,<  Right
 3  EDIT F7   8(  Щ]  ДD  Ю@  ПВ
-4  F8   F6   7,  Ш[  ЛL  БB  <-
-5  F7   F5   6&  ГG  ОO  ЬX  Sp
+4  F8   F6   7,  Ш[  ЛL  БB  Left
+5  F7   F5   6&  ГG  ОO  ЬX  Space
 6  F6   F4   5%  НN  РR  ТT  АР2
-7  F5   F3   4$  ЕE  ПP  ИI  ТАБ
-8  F4   F2   3#  КK  АA  МM  DOWN
-9  F3   F1   2"  УU  ВW  СS  UP
-A  F2   KOI  1!  ЦC  ЫY  Ч^  HOME
-B  F1   ESC  ;+  ЙJ  ФF  ЯQ  Р/Л
+7  F5   F3   4$  ЕE  ПP  ИI  Tab
+8  F4   F2   3#  КK  АA  МM  Down
+9  F3   F1   2"  УU  ВW  СS  Up
+A  F2   KOI  1!  ЦC  ЫY  Ч^  Home
+B  F1   ESC  ;+  ЙJ  ФF  ЯQ  Ru/En
 C                            NR
 */
 

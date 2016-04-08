@@ -331,25 +331,21 @@ keyboard kbd
 
 ////////////////////   SYS PPI   ////////////////////
 wire [7:0] ppi1_o;
-wire [7:0] ppi1_mode;
 
 k580vv55 ppi1
 (
-	.reset(reset),
 	.addr(addrbus[1:0]),
 	.we_n(cpu_wr_n | ~ppi1_sel),
 	.idata(cpu_o),
 	.odata(ppi1_o),
-	
+
 	.ipa(col_out[7:0]),
-	.ipc({4'b1111, col_out[11:8]}), 
+	.ipc({4'b1111, col_out[11:8]}),
 	.opb({row_in, 2'bZZ}),
 
 	.opa(col_in[7:0]),
 	.opc({color[2], color[1], spk_out, color[0], col_in[11:8]}),
-	.ipb({row_out, nr, 1'b0}),
-
-	.mode(ppi1_mode)
+	.ipb({row_out, nr, 1'b0})
 );
 
 
@@ -361,7 +357,7 @@ wire [7:0] ppi2_c;
 
 k580vv55 ppi2
 (
-	.reset(reset), 
+	.reset(reset),
 	.addr(addrbus[1:0]), 
 	.we_n(cpu_wr_n | ~ppi2_sel),
 	.idata(cpu_o), 
