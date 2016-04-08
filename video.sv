@@ -111,9 +111,9 @@ always_comb begin
 			B_in = {6{bmp[7] & rgb[4]}};
 		end
 		2'b001: begin
-			R_in = bmp[7] ? {{2{rgb[6]}}, {4{rgb[7]}}} : {{2{rgb[2]}}, {4{rgb[3]}}};
-			G_in = bmp[7] ? {{2{rgb[5]}}, {4{rgb[7]}}} : {{2{rgb[1]}}, {4{rgb[3]}}};
-			B_in = bmp[7] ? {{2{rgb[4]}}, {4{rgb[7]}}} : {{2{rgb[0]}}, {4{rgb[3]}}};
+			R_in = bmp[7] ? {{3{rgb[6],rgb[7]}}} : {{3{rgb[2],rgb[3]}}};
+			G_in = bmp[7] ? {{3{rgb[5],rgb[7]}}} : {{3{rgb[1],rgb[3]}}};
+			B_in = bmp[7] ? {{3{rgb[4],rgb[7]}}} : {{3{rgb[0],rgb[3]}}};
 		end
 	endcase
 end
