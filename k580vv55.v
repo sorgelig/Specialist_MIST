@@ -37,9 +37,9 @@ reg [7:0] opa_r;
 reg [7:0] opb_r;
 reg [7:0] opc_r;
 
-assign opa = mode[4] ? 8'h0 : opa_r;
-assign opb = mode[1] ? 8'h0 : opb_r;
-assign opc ={mode[3] ? 4'h0  : opc_r[7:4], mode[0] ? 4'h0 : opc_r[3:0]};
+assign opa = mode[4] ? 8'hFF : opa_r;
+assign opb = mode[1] ? 8'hFF : opb_r;
+assign opc ={mode[3] ? 4'hF  : opc_r[7:4], mode[0] ? 4'hF : opc_r[3:0]};
 
 always @* begin
 	case(addr) 
