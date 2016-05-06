@@ -3,7 +3,7 @@
 //
 //            Copyright (C) 2016 Sorgelig
 //
-// This core is distributed under modified BSD license. 
+// This core is distributed under modified GNU GPL v2 license. 
 // For complete licensing information see LICENSE.TXT.
 // -------------------------------------------------------------------- 
 //
@@ -31,7 +31,6 @@ module Specialist
    input         SPI_DI,
    input         SPI_SS2,
    input         SPI_SS3,
-   input         SPI_SS4,
    input         CONF_DATA0,
 
    output [12:0] SDRAM_A,
@@ -47,7 +46,7 @@ module Specialist
    output        SDRAM_CKE
 );
 
-assign LED = ~(ioctl_download | fdd_rd);
+assign LED = ~(ioctl_download | ioctl_erasing | fdd_rd);
 
 ///////////////////   ARM I/O   //////////////////
 wire  [7:0] status;
@@ -60,13 +59,16 @@ wire        ioctl_wr;
 wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_data;
 wire        ioctl_download;
+wire        ioctl_erasing;
 wire  [4:0] ioctl_index;
-wire        rom_load = (ioctl_download && (ioctl_index==0));
-wire        rks_load = (ioctl_download && (ioctl_index==1));
-wire        odi_load = (ioctl_download && (ioctl_index==2));
+wire        rom_load = ((ioctl_download | ioctl_erasing) & (ioctl_index==0));
+wire        rks_load =  (ioctl_download & (ioctl_index==1));
+wire        odi_load =  (ioctl_download & (ioctl_index==2));
 
-mist_io #(.STRLEN(85)) user_io 
+mist_io #(.STRLEN(85)) mist_io 
 (
+	.clk_sys(clk_sys),
+
 	.conf_str
 	(
 	     "SPMX;RKS;F3,ODI;O2,Model,Original,MX;O3,Disk (for MX),On,Off;O4,Turbo,Off,On;T6,Reset"
@@ -81,17 +83,16 @@ mist_io #(.STRLEN(85)) user_io
 	.buttons(buttons),
 	.scandoubler_disable(scandoubler_disable),
 
-	.ps2_clk(ce_ps2),
+	.ps2_clk(clk_ps2),
 	.ps2_kbd_clk(ps2_kbd_clk),
 	.ps2_kbd_data(ps2_kbd_data),
 
-	.io_download(ioctl_download),
-	.io_index(ioctl_index),
-
-	.io_clk(clk_io),
-	.io_wr(ioctl_wr),
-	.io_addr(ioctl_addr),
-	.io_dout(ioctl_data)
+	.ioctl_download(ioctl_download),
+	.ioctl_erasing(ioctl_erasing),
+	.ioctl_index(ioctl_index),
+	.ioctl_addr(ioctl_addr),
+	.ioctl_dout(ioctl_data),
+	.ioctl_wr(ioctl_wr)
 );
 
 
@@ -101,45 +102,42 @@ pll pll
 (
 	.inclk0(CLOCK_27),
 	.locked(locked),
-	.c0(clk_ram),
-	.c1(SDRAM_CLK),
-	.c2(clk_sys)
+	.c0(clk_sys),
+	.c1(SDRAM_CLK)
 );
 
-wire clk_sys;       // 48Mhz
-wire clk_ram;       // 96MHz
-reg  clk_io;        // 24MHz
-                    //
-                    // strobes:
+wire clk_sys;       // 96MHz
 reg  ce_f1,ce_f2;   // 2MHz/4MHz
 reg  ce_pit;        // 2MHz
-reg  ce_pix;        // 16MHz
-reg  ce_ps2;        // 14KHz
+reg  ce_pix_p;      // 16MHz
+reg  ce_pix_n;      // 16MHz
+reg  clk_ps2;       // 14KHz
 
 always @(negedge clk_sys) begin
-	reg [2:0] clk_viddiv;
+	reg [3:0] clk_viddiv;
 	reg [5:0] cpu_div = 0;
-	int ps2_div;
-	reg turbo = 0;
-
-	clk_io <= ~clk_io;
+	int       ps2_div;
+	reg       turbo = 0;
 
 	clk_viddiv <= clk_viddiv + 1'd1;
-	if(clk_viddiv == 2) clk_viddiv <=0;
-	ce_pix   <= !clk_viddiv;
+	if(clk_viddiv == 11) clk_viddiv <=0;
+	ce_pix_p <= (clk_viddiv == 0);
+	ce_pix_n <= (clk_viddiv == 6);
 
 	cpu_div <= cpu_div + 1'd1;
-	if(cpu_div == 23) begin 
+	if(cpu_div == 47) begin 
 		cpu_div <= 0;
 		turbo <= status[4];
 	end
-	ce_f1  <= ((cpu_div == 0) | (turbo & (cpu_div == 12)));
-	ce_f2  <= ((cpu_div == 2) | (turbo & (cpu_div == 14)));
+	ce_f1  <= ((cpu_div == 0)  | (turbo & (cpu_div == 24)));
+	ce_f2  <= ((cpu_div == 12) | (turbo & (cpu_div == 36)));
 	ce_pit <= !cpu_div;
 
 	ps2_div <= ps2_div+1;
-	if(ps2_div == 3570) ps2_div <=0;
-	ce_ps2 <= !ps2_div;
+	if(ps2_div == 3570) begin
+		ps2_div <=0;
+		clk_ps2 <= ~clk_ps2;
+	end
 end
 
 
@@ -150,7 +148,7 @@ reg [7:0] mon;
 always @(posedge clk_sys) begin
 	if(status[0] | status[6] | buttons[1] | reset_key[0] | rom_load) begin
 		mx    <=  status[2];
-		mxd   <= ~status[3] & ~reset_key[1];
+		mxd   <=  status[2] & ~status[3] & ~reset_key[1];
 		mon   <= ~status[2] ? 8'h1C : (~status[3] & reset_key[1]) ? 8'h0C : 8'h1D;
 		reset <= 1;
 	end else begin
@@ -165,24 +163,26 @@ sram sram
 ( 
 	.*,
 	.init(!locked),
-	.clk_sdram(clk_ram),
+	.clk_sdram(clk_sys),
 	.dout(ram_o),
-	.din (ioctl_download ? ioctl_data : cpu_o    ),
-	.addr(ioctl_download ? ioctl_addr : ram_addr ),
-	.we  (ioctl_download ? ioctl_wr   : ~cpu_wr_n & ~rom_sel),
-	.rd  (ioctl_download ? 1'b0       : cpu_rd   )
+	.din ((ioctl_download | ioctl_erasing) ? ioctl_data : cpu_o    ),
+	.addr((ioctl_download | ioctl_erasing) ? ioctl_addr : ram_addr ),
+	.we  ((ioctl_download | ioctl_erasing) ? ioctl_wr   : ~cpu_wr_n & ~rom_sel),
+	.rd  ((ioctl_download | ioctl_erasing) ? 1'b0       : cpu_rd   ),
+	.ready()
 );
 
 reg [3:0] page = 1;
 wire      romp = (page == 1);
-always @(posedge clk_sys, posedge reset, posedge rks_load) begin
+always @(posedge clk_sys) begin
 	reg old_wr;
+	old_wr <= cpu_wr_n;
+
 	if(reset) begin
 		page <= 1;
 	end else if(rks_load) begin
 		page <= 0;
 	end else begin
-		old_wr <= cpu_wr_n;
 		if(old_wr & ~cpu_wr_n & page_sel & mxd) begin
 			casex(addrbus[1:0])
 				2'b00: page <= 4'd0;
@@ -295,19 +295,21 @@ reg        bw_mode;
 video video
 (
 	.*,
-	.clk_pix(ce_pix),
 	.addr(addrbus),
 	.din(cpu_o),
 	.we(~cpu_wr_n && !page),
 	.color(mx ? color_mx : {1'b0, ~color[1], ~color[2], ~color[0], 4'b0000})
 );
 
-always @(negedge cpu_wr_n, posedge reset, posedge rks_load) begin
+always @(posedge clk_sys) begin
+	reg old_wr, old_key;
+	old_wr <= cpu_wr_n;
 	if(reset | rks_load) color_mx <= 8'hF0;
-		else if(pal_sel) color_mx <= cpu_o;
+		else if(old_wr & ~cpu_wr_n & pal_sel) color_mx <= cpu_o;
+	
+	old_key <= color_key;
+	if(~old_key & color_key) bw_mode <= ~bw_mode;
 end
-
-always @(posedge color_key) bw_mode <= ~bw_mode;
 
 
 //////////////////   KEYBOARD   ///////////////////
@@ -334,6 +336,8 @@ wire [7:0] ppi1_o;
 
 k580vv55 ppi1
 (
+	.clk_sys(clk_sys),
+
 	.addr(addrbus[1:0]),
 	.we_n(cpu_wr_n | ~ppi1_sel),
 	.idata(cpu_o),
@@ -358,6 +362,8 @@ wire [7:0] ppi2_c;
 k580vv55 ppi2
 (
 	.reset(reset),
+	.clk_sys(clk_sys),
+
 	.addr(addrbus[1:0]), 
 	.we_n(cpu_wr_n | ~ppi2_sel),
 	.idata(cpu_o), 
@@ -384,6 +390,7 @@ k580vi53 pit
 	.reset(reset),
 	.clk_sys(clk_sys),
 	.clk_timer({ce_pit,ce_pit,pit_out[1]}),
+
 	.addr(addrbus[1:0]),
 	.wr(~cpu_wr_n & pit_sel),
 	.rd(cpu_rd & pit_sel),
@@ -405,10 +412,12 @@ wire        fdd_rd;
 wire        fdd_drq;
 wire        fdd_busy;
 
-always @(negedge ioctl_download) begin 
-	if(ioctl_index == 2) begin 
+always @(posedge clk_sys) begin
+	reg old_download;
+	old_download <= ioctl_download;
+	if(old_download & ~ioctl_download & (ioctl_index == 2)) begin 
 		fdd_ready <= 1;
-		fdd_size  <= ioctl_addr[19:0];
+		fdd_size  <= ioctl_addr[19:0] + 1'd1;
 	end
 end
 
@@ -416,38 +425,39 @@ wire fdd_read = fdd_rd & fdd_sel;
 
 wd1793 fdd
 (
-	.clk(ce_f1),
+	.clk_sys(clk_sys),
+	.ce(ce_f1),
 	.reset(reset),
-	.rd(cpu_rd & fdd_sel),
-	.wr(~cpu_wr_n & fdd_sel),
+	.io_en(fdd_sel),
+	.rd(cpu_rd),
+	.wr(~cpu_wr_n),
 	.addr(addrbus[1:0]),
-	.idata(cpu_o),
-	.odata(fdd_o),
+	.din(cpu_o),
+	.dout(fdd_o),
 	.drq(fdd_drq),
 	.busy(fdd_busy),
 
 	.buff_size(fdd_size),
 	.buff_addr(fdd_addr),
 	.buff_read(fdd_rd),
-	.buff_idata(ram_o),
-	
+	.buff_din(ram_o),
+
 	.size_code(3),
 	.side(fdd_side),
-	.ready(fdd_drive ? 1'b0 : fdd_ready)
+	.ready(~fdd_drive & fdd_ready)
 );
 
 wire fdd2_we = ~cpu_wr_n & fdd2_sel;
-always @(posedge clk_sys, posedge reset) begin
+always @(posedge clk_sys) begin
 	reg old_we;
 
+	old_we <= fdd2_we;
 	if(reset) begin
 		fdd_side  <= 0;
 		fdd_drive <= 0;
 		cpu_hold  <= 0;
 		old_we    <= 0;
 	end else begin
-		old_we   <= fdd2_we;
-
 		if(~old_we & fdd2_we) begin
 			case(addrbus[1:0])
 				0: cpu_hold  <= 1;
