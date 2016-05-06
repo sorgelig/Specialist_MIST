@@ -24,8 +24,9 @@
 module video
 (
 	// Clocks
-	input         clk_pix, // Video clock (16 MHz)
-	input         clk_ram, // Video ram clock (>50 MHz)
+	input         clk_sys,
+	input         ce_pix_p, // Video clock enable (16 MHz)
+	input         ce_pix_n, // Video clock enable (16 MHz)
 
 	// OSD data
 	input         SPI_SCK,
@@ -53,50 +54,48 @@ module video
 	input         bw_mode
 );
 
-reg clk_8;
-always @(posedge clk_pix) clk_8 <= !clk_8;
-
 reg [8:0] hc;
 reg [8:0] vc;
-reg HSync, VSync;
+reg       HSync;
+reg       VSync;
+reg [7:0] bmp;
+reg [7:0] rgb;
+reg       blank;
 
-always @(posedge clk_8) begin
-	if(hc == 511) begin 
-		hc <=0;
-		if (vc == 311) begin 
-			vc <= 9'd0;
-		end else begin
-			vc <= vc + 1'd1;
+always @(posedge clk_sys) begin
+	if(ce_pix_p) begin
+		if(hc == 511) begin 
+			hc <=0;
+			if (vc == 311) begin 
+				vc <= 9'd0;
+			end else begin
+				vc <= vc + 1'd1;
 
-			if(vc == 271) VSync  <= 1;
-			if(vc == 281) VSync  <= 0;
-		end
-	end else hc <= hc + 1'd1;
+				if(vc == 271) VSync  <= 1;
+				if(vc == 281) VSync  <= 0;
+			end
+		end else hc <= hc + 1'd1;
 
-	if(hc == 415) HSync  <= 1;
-	if(hc == 463) HSync  <= 0;
+		if(hc == 415) HSync  <= 1;
+		if(hc == 463) HSync  <= 0;
+	end
+	if(ce_pix_n) begin
+		bmp <= {bmp[6:0], 1'b0};
+		if(!hc[2:0] & ~(hc[8] & hc[7]) & ~vc[8]) {rgb, bmp} <= vram_o;
+		blank <= (hc[8] & hc[7]) | vc[8];
+	end
 end
 
 wire [15:0] vram_o;
 dpram vram
 (
-	.clock(clk_ram),
+	.clock(clk_sys),
 	.wraddress(addr[13:0]-14'h1000),
 	.data({color,din}),
 	.wren(we & addr[15] & ~addr[14] & (addr[13] | addr[12])),
 	.rdaddress({hc[8:3], vc[7:0]}),
 	.q(vram_o)
 );
-
-reg [7:0] bmp;
-reg [7:0] rgb;
-reg       blank;
-
-always @(negedge clk_8) begin
-	bmp <= {bmp[6:0], 1'b0};
-	if(!hc[2:0] & ~(hc[8] & hc[7]) & ~vc[8]) {rgb, bmp} <= vram_o;
-	blank <= (hc[8] & hc[7]) | vc[8];
-end
 
 wire [5:0] R_in,  G_in,  B_in;
 wire [5:0] R_out, G_out, B_out;
@@ -121,7 +120,7 @@ end
 osd #(10'd0, 10'd0, 3'd4) osd
 (
 	.*,
-	.clk_pix(clk_8),
+	.ce_pix(ce_pix_p),
 	.R_in(R_in),
 	.G_in(G_in),
 	.B_in(B_in)
@@ -132,11 +131,12 @@ wire [5:0] r_out;
 wire [5:0] g_out;
 wire [5:0] b_out;
 
-scandoubler scandoubler(
+scandoubler scandoubler
+(
 	.*,
-	.clk_x2(clk_pix),
+	.ce_x2(ce_pix_p | ce_pix_n),
+	.ce_x1(ce_pix_p),
 	.scanlines(2'b00),
-	    
 	.hs_in(HSync),
 	.vs_in(VSync),
 	.r_in(R_out),
@@ -147,5 +147,6 @@ scandoubler scandoubler(
 assign {VGA_HS,           VGA_VS,  VGA_R, VGA_G, VGA_B} = scandoubler_disable ? 
        {~(HSync ^ VSync), 1'b1,    R_out, G_out, B_out}: 
        {~hs_out,          ~vs_out, r_out, g_out, b_out};
+
 
 endmodule
