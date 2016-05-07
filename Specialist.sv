@@ -83,7 +83,6 @@ mist_io #(.STRLEN(85)) mist_io
 	.buttons(buttons),
 	.scandoubler_disable(scandoubler_disable),
 
-	.ps2_clk(clk_ps2),
 	.ps2_kbd_clk(ps2_kbd_clk),
 	.ps2_kbd_data(ps2_kbd_data),
 
@@ -111,12 +110,10 @@ reg  ce_f1,ce_f2;   // 2MHz/4MHz
 reg  ce_pit;        // 2MHz
 reg  ce_pix_p;      // 16MHz
 reg  ce_pix_n;      // 16MHz
-reg  clk_ps2;       // 14KHz
 
 always @(negedge clk_sys) begin
 	reg [3:0] clk_viddiv;
 	reg [5:0] cpu_div = 0;
-	int       ps2_div;
 	reg       turbo = 0;
 
 	clk_viddiv <= clk_viddiv + 1'd1;
@@ -132,12 +129,6 @@ always @(negedge clk_sys) begin
 	ce_f1  <= ((cpu_div == 0)  | (turbo & (cpu_div == 24)));
 	ce_f2  <= ((cpu_div == 12) | (turbo & (cpu_div == 36)));
 	ce_pit <= !cpu_div;
-
-	ps2_div <= ps2_div+1;
-	if(ps2_div == 3570) begin
-		ps2_div <=0;
-		clk_ps2 <= ~clk_ps2;
-	end
 end
 
 
@@ -321,14 +312,7 @@ wire        nr;
 wire  [1:0] reset_key;
 wire        color_key;
 
-keyboard kbd
-(
-	.*,
-	.clk(clk_sys), 
-	.reset(reset),
-	.ps2_clk(ps2_kbd_clk),
-	.ps2_dat(ps2_kbd_data)
-);
+keyboard keyboard(.*);
 
 
 ////////////////////   SYS PPI   ////////////////////

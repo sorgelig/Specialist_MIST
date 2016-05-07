@@ -15,10 +15,11 @@
 
 module keyboard
 (
-	input           clk,
 	input           reset,
-	input           ps2_clk,
-	input           ps2_dat,
+	input           clk_sys,
+
+	input           ps2_kbd_clk,
+	input           ps2_kbd_data,
 
 	input           mx,
 	input     [5:0] row_in,
@@ -61,7 +62,7 @@ reg  [2:0] c;
 reg  [3:0] r;
 reg [11:0] shift_reg;
 
-wire[11:0] kdata = {ps2_dat,shift_reg[11:1]};
+wire[11:0] kdata = {ps2_kbd_data,shift_reg[11:1]};
 wire [7:0] kcode = kdata[9:2];
 
 /*
@@ -186,7 +187,7 @@ always @(*) begin
 	endcase
 end
 
-always @(posedge clk) begin
+always @(posedge clk_sys) begin
 	reg mctrl, malt;
 	reg old_reset;
 	reg unpress;
@@ -201,7 +202,7 @@ always @(posedge clk) begin
 		col_state <= '{default:0};
 		row_state <= '{default:0};
 	end else begin
-		prev_clk <= {ps2_clk,prev_clk[3:1]};
+		prev_clk <= {ps2_kbd_clk,prev_clk[3:1]};
 		if (prev_clk==4'b1) begin
 			if (kdata[11]==1'b1 && ^kdata[10:2]==1'b1 && kdata[1:0]==2'b1) begin
 				shift_reg <= 12'hFFF;
