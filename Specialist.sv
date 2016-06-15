@@ -48,6 +48,10 @@ module Specialist
 
 assign LED = ~(ioctl_download | ioctl_erasing | fdd_rd);
 
+`include "build_id.v"
+localparam CONF_STR = {"SPMX;RKS;F3,ODI;O2,Model,Original,MX;O3,Disk (for MX),On,Off;O4,Turbo,Off,On;T6,Reset;V0,v2.10.",`BUILD_DATE};
+
+
 ///////////////////   ARM I/O   //////////////////
 wire  [7:0] status;
 wire  [1:0] buttons;
@@ -57,7 +61,7 @@ wire        ps2_kbd_data;
 
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
-wire  [7:0] ioctl_data;
+wire  [7:0] ioctl_dout;
 wire        ioctl_download;
 wire        ioctl_erasing;
 wire  [4:0] ioctl_index;
@@ -65,14 +69,9 @@ wire        rom_load = ((ioctl_download | ioctl_erasing) & (ioctl_index==0));
 wire        rks_load =  (ioctl_download & (ioctl_index==1));
 wire        odi_load =  (ioctl_download & (ioctl_index==2));
 
-mist_io #(.STRLEN(85)) mist_io 
+mist_io #(.STRLEN($size(CONF_STR)>>3)) mist_io 
 (
-	.clk_sys(clk_sys),
-
-	.conf_str
-	(
-	     "SPMX;RKS;F3,ODI;O2,Model,Original,MX;O3,Disk (for MX),On,Off;O4,Turbo,Off,On;T6,Reset"
-	),
+	.conf_str(CONF_STR),
 	.SPI_SCK(SPI_SCK),
 	.CONF_DATA0(CONF_DATA0),
 	.SPI_SS2(SPI_SS2),
@@ -90,7 +89,7 @@ mist_io #(.STRLEN(85)) mist_io
 	.ioctl_erasing(ioctl_erasing),
 	.ioctl_index(ioctl_index),
 	.ioctl_addr(ioctl_addr),
-	.ioctl_dout(ioctl_data),
+	.ioctl_dout(ioctl_dout),
 	.ioctl_wr(ioctl_wr)
 );
 
@@ -156,7 +155,7 @@ sram sram
 	.init(!locked),
 	.clk_sdram(clk_sys),
 	.dout(ram_o),
-	.din ((ioctl_download | ioctl_erasing) ? ioctl_data : cpu_o    ),
+	.din ((ioctl_download | ioctl_erasing) ? ioctl_dout : cpu_o    ),
 	.addr((ioctl_download | ioctl_erasing) ? ioctl_addr : ram_addr ),
 	.we  ((ioctl_download | ioctl_erasing) ? ioctl_wr   : ~cpu_wr_n & ~rom_sel),
 	.rd  ((ioctl_download | ioctl_erasing) ? 1'b0       : cpu_rd   ),
