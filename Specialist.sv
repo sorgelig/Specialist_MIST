@@ -46,10 +46,10 @@ module Specialist
    output        SDRAM_CKE
 );
 
-assign LED = ~(ioctl_download | ioctl_erasing | fdd_rd);
+assign LED = ~(ioctl_download | ioctl_erasing);
 
 `include "build_id.v"
-localparam CONF_STR = {"SPMX;RKS;F3,ODI;O2,Model,Original,MX;O3,Disk (for MX),On,Off;O4,Turbo,Off,On;T6,Reset;V0,v2.10.",`BUILD_DATE};
+localparam CONF_STR = {"SPMX;;F0,RKS,Load Tape;S3,ODI,Mount Disk;O4,CPU Speed,2MHz,4MHz;O2,Model,Original,MX;O3,Disk (for MX),On,Off;T6,Reset;V0,v2.20.",`BUILD_DATE};
 
 
 ///////////////////   ARM I/O   //////////////////
@@ -69,28 +69,34 @@ wire        rom_load = ((ioctl_download | ioctl_erasing) & (ioctl_index==0));
 wire        rks_load =  (ioctl_download & (ioctl_index==1));
 wire        odi_load =  (ioctl_download & (ioctl_index==2));
 
+wire [31:0] sd_lba;
+wire        sd_rd;
+wire        sd_wr;
+wire        sd_ack;
+wire  [8:0] sd_buff_addr;
+wire  [7:0] sd_buff_dout;
+wire  [7:0] sd_buff_din;
+wire        sd_buff_wr;
+wire        img_mounted;
+wire [31:0] img_size;
+
 mist_io #(.STRLEN($size(CONF_STR)>>3)) mist_io 
 (
+	.*,
 	.conf_str(CONF_STR),
-	.SPI_SCK(SPI_SCK),
-	.CONF_DATA0(CONF_DATA0),
-	.SPI_SS2(SPI_SS2),
-	.SPI_DO(SPI_DO),
-	.SPI_DI(SPI_DI),
+	.sd_conf(0),
+	.sd_sdhc(1),
+	.ioctl_force_erase(0),
 
-	.status(status),
-	.buttons(buttons),
-	.scandoubler_disable(scandoubler_disable),
-
-	.ps2_kbd_clk(ps2_kbd_clk),
-	.ps2_kbd_data(ps2_kbd_data),
-
-	.ioctl_download(ioctl_download),
-	.ioctl_erasing(ioctl_erasing),
-	.ioctl_index(ioctl_index),
-	.ioctl_addr(ioctl_addr),
-	.ioctl_dout(ioctl_dout),
-	.ioctl_wr(ioctl_wr)
+	// unused
+	.joystick_0(),
+	.joystick_1(),
+	.joystick_analog_0(),
+	.joystick_analog_1(),
+	.sd_ack_conf(),
+	.switches(),
+	.ps2_mouse_clk(),
+	.ps2_mouse_data()
 );
 
 
@@ -186,17 +192,14 @@ end
 
 reg [24:0] ram_addr;
 always_comb begin
-	casex({mxd, base_sel, rom_sel, fdd_read})
+	casex({mxd, base_sel, rom_sel})
 		//without disk
-		4'b0_X00: ram_addr = addrbus;
-		4'b0_X10: ram_addr = {mon,  addrbus[11:0]};
+		4'b0_X0: ram_addr = addrbus;
+		4'b0_X1: ram_addr = {mon,  addrbus[11:0]};
 
 		//with disk
-		4'b1_1X0: ram_addr = addrbus;
-		4'b1_0X0: ram_addr = {page, addrbus};
-
-		//FDD data
-		4'bX_XX1: ram_addr = {1'b1, fdd_addr};
+		4'b1_1X: ram_addr = addrbus;
+		4'b1_0X: ram_addr = {page, addrbus};
 	endcase
 end
 
@@ -386,27 +389,20 @@ k580vi53 pit
 
 /////////////////////   FDD   /////////////////////
 wire  [7:0] fdd_o;
-wire [19:0] fdd_addr;
-reg  [19:0] fdd_size;
 reg         fdd_drive;
 reg         fdd_side;
 reg         fdd_ready = 0;
-wire        fdd_rd;
 wire        fdd_drq;
 wire        fdd_busy;
 
 always @(posedge clk_sys) begin
-	reg old_download;
-	old_download <= ioctl_download;
-	if(old_download & ~ioctl_download & (ioctl_index == 2)) begin 
-		fdd_ready <= 1;
-		fdd_size  <= ioctl_addr[19:0] + 1'd1;
-	end
+	reg old_mounted;
+
+	old_mounted <= img_mounted;
+	if(~old_mounted & img_mounted) fdd_ready <= 1;
 end
 
-wire fdd_read = fdd_rd & fdd_sel;
-
-wd1793 fdd
+wd1793 #(1) fdd
 (
 	.clk_sys(clk_sys),
 	.ce(ce_f1),
@@ -420,14 +416,29 @@ wd1793 fdd
 	.drq(fdd_drq),
 	.busy(fdd_busy),
 
-	.buff_size(fdd_size),
-	.buff_addr(fdd_addr),
-	.buff_read(fdd_rd),
-	.buff_din(ram_o),
+	.img_mounted(img_mounted),
+	.img_size(img_size),
+	.sd_lba(sd_lba),
+	.sd_rd(sd_rd),
+	.sd_wr(sd_wr),
+	.sd_ack(sd_ack),
+	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_dout(sd_buff_dout),
+	.sd_buff_din(sd_buff_din),
+	.sd_buff_wr(sd_buff_wr),
+
+	.wp(0),
 
 	.size_code(3),
 	.side(fdd_side),
-	.ready(~fdd_drive & fdd_ready)
+	.ready(~fdd_drive & fdd_ready),
+	.prepare(),
+
+	.input_active(0),
+	.input_addr(0),
+	.input_data(0),
+	.input_wr(0),
+	.buff_din(0)
 );
 
 wire fdd2_we = ~cpu_wr_n & fdd2_sel;
