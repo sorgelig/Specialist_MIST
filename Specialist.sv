@@ -49,7 +49,7 @@ module Specialist
 assign LED = ~(ioctl_download | ioctl_erasing);
 
 `include "build_id.v"
-localparam CONF_STR = {"SPMX;;F0,RKS,Load Tape;S3,ODI,Mount Disk;O4,CPU Speed,2MHz,4MHz;O2,Model,Original,MX;O3,Disk (for MX),On,Off;T6,Reset;V0,v2.20.",`BUILD_DATE};
+localparam CONF_STR = {"SPMX;;F0,RKS,Load Tape;S3,ODI,Mount Disk;O4,CPU Speed,2MHz,4MHz;O2,Model,Original,MX;O3,Disk (for MX),On,Off;T6,Cold Reset;V0,v2.20.",`BUILD_DATE};
 
 
 ///////////////////   ARM I/O   //////////////////
@@ -65,7 +65,7 @@ wire  [7:0] ioctl_dout;
 wire        ioctl_download;
 wire        ioctl_erasing;
 wire  [4:0] ioctl_index;
-wire        rom_load = ((ioctl_download | ioctl_erasing) & (ioctl_index==0));
+wire        rom_load =  (ioctl_download & (ioctl_index==0));
 wire        rks_load =  (ioctl_download & (ioctl_index==1));
 wire        odi_load =  (ioctl_download & (ioctl_index==2));
 
@@ -86,7 +86,7 @@ mist_io #(.STRLEN($size(CONF_STR)>>3)) mist_io
 	.conf_str(CONF_STR),
 	.sd_conf(0),
 	.sd_sdhc(1),
-	.ioctl_force_erase(0),
+	.ioctl_force_erase(status[6]),
 
 	// unused
 	.joystick_0(),
@@ -142,7 +142,7 @@ reg       reset = 0;
 reg [7:0] mon;
 
 always @(posedge clk_sys) begin
-	if(status[0] | status[6] | buttons[1] | reset_key[0] | rom_load) begin
+	if(status[0] | buttons[1] | reset_key[0] | rom_load | ioctl_erasing) begin
 		mx    <=  status[2];
 		mxd   <=  status[2] & ~status[3] & ~reset_key[1];
 		mon   <= ~status[2] ? 8'h1C : (~status[3] & reset_key[1]) ? 8'h0C : 8'h1D;

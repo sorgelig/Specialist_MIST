@@ -489,6 +489,7 @@ always@(posedge clk_sys) begin
 	reg  [5:0] erase_clk_div;
 	reg [24:0] end_addr;
 	reg        erase_trigger = 0;
+	reg [24:0] saved_addr;
 
 	rclkD    <= rclk;
 	rclkD2   <= rclkD;
@@ -514,11 +515,12 @@ always@(posedge clk_sys) begin
 			end_addr      <= 0;
 			erase_clk_div <= 1;
 			ioctl_erasing <= 1;
+			saved_addr    <= ioctl_addr;
 		end else if((ioctl_force_erase & ~old_force)) begin
 			erase_trigger <= 0;
-			ioctl_addr    <= 25'hFFFF;
-			erase_mask    <= 25'hFFFF;
-			end_addr      <= 25'hFFFE;
+			ioctl_addr    <= saved_addr;
+			erase_mask    <= 25'hFFFFF;
+			end_addr      <= 0;
 			erase_clk_div <= 1;
 			ioctl_erasing <= 1;
 		end else if(ioctl_erasing) begin
