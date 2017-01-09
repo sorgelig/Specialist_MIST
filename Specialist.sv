@@ -56,6 +56,7 @@ localparam CONF_STR = {"SPMX;;F0,RKS,Load Tape;S3,ODI,Mount Disk;O4,CPU Speed,2M
 wire  [7:0] status;
 wire  [1:0] buttons;
 wire        scandoubler_disable;
+wire        ypbpr;
 wire        ps2_kbd_clk;
 wire        ps2_kbd_data;
 
