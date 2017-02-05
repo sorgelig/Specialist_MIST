@@ -43,6 +43,7 @@ module video
 	// TV/VGA
 	input         scandoubler_disable,
 	input         ypbpr,
+	input   [1:0] scale,
 
 	// CPU bus
 	input	 [15:0] addr,
@@ -98,70 +99,37 @@ dpram vram
 	.q(vram_o)
 );
 
-wire [5:0] R_in,  G_in,  B_in;
-wire [5:0] R_out, G_out, B_out;
+wire [2:0] R,  G,  B;
 
 always_comb begin
 	casex({blank, bw_mode, mx})
-		3'b1XX: {R_in,G_in,B_in} = {18{1'b0}};
-		2'b01X: {R_in,G_in,B_in} = {18{bmp[7]}};
+		3'b1XX: {R,G,B} = {9{1'b0}};
+		2'b01X: {R,G,B} = {9{bmp[7]}};
 		2'b000: begin
-			R_in = {6{bmp[7] & rgb[6]}};
-			G_in = {6{bmp[7] & rgb[5]}};
-			B_in = {6{bmp[7] & rgb[4]}};
+			R = {3{bmp[7] & rgb[6]}};
+			G = {3{bmp[7] & rgb[5]}};
+			B = {3{bmp[7] & rgb[4]}};
 		end
 		2'b001: begin
-			R_in = bmp[7] ? {{3{rgb[6],rgb[7]}}} : {{3{rgb[2],rgb[3]}}};
-			G_in = bmp[7] ? {{3{rgb[5],rgb[7]}}} : {{3{rgb[1],rgb[3]}}};
-			B_in = bmp[7] ? {{3{rgb[4],rgb[7]}}} : {{3{rgb[0],rgb[3]}}};
+			R = bmp[7] ? {rgb[6],rgb[7],rgb[6]} : {rgb[2],rgb[3],rgb[2]};
+			G = bmp[7] ? {rgb[5],rgb[7],rgb[5]} : {rgb[1],rgb[3],rgb[1]};
+			B = bmp[7] ? {rgb[4],rgb[7],rgb[4]} : {rgb[0],rgb[3],rgb[0]};
 		end
 	endcase
 end
 
-osd #(10'd0, 10'd0, 3'd4) osd
+video_mixer #(.LINE_LENGTH(512), .HALF_DEPTH(1)) video_mixer
 (
 	.*,
 	.ce_pix(ce_pix_p),
-	.R_in(R_in),
-	.G_in(G_in),
-	.B_in(B_in)
-);
+	.ce_pix_actual(ce_pix_p),
 
-wire hs_out, vs_out;
-wire [5:0] r_out;
-wire [5:0] g_out;
-wire [5:0] b_out;
+	.scanlines(scandoubler_disable ? 2'b00 : {scale == 3, scale == 2}),
+	.hq2x(scale==1),
 
-scandoubler scandoubler
-(
-	.*,
-	.ce_x2(ce_pix_p | ce_pix_n),
-	.ce_x1(ce_pix_p),
-	.scanlines(2'b00),
-	.hs_in(HSync),
-	.vs_in(VSync),
-	.r_in(R_out),
-	.g_in(G_out),
-	.b_in(B_out)
-);
-
-video_mixer video_mixer
-(
-	.*,
 	.ypbpr_full(1),
-
-	.r_i({R_out, R_out[5:4]}),
-	.g_i({G_out, G_out[5:4]}),
-	.b_i({B_out, B_out[5:4]}),
-	.hsync_i(HSync),
-	.vsync_i(VSync),
-
-	.r_p({r_out, r_out[5:4]}),
-	.g_p({g_out, g_out[5:4]}),
-	.b_p({b_out, b_out[5:4]}),
-	.hsync_p(hs_out),
-	.vsync_p(vs_out)
+	.line_start(0),
+	.mono(0)
 );
-
 
 endmodule

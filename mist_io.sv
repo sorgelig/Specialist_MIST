@@ -56,7 +56,7 @@ module mist_io #(parameter STRLEN=0, parameter PS2DIV=100)
 	output            scandoubler_disable,
 	output            ypbpr,
 
-	output reg [7:0]  status,
+	output reg [31:0] status,
 
 	// SD config
 	input             sd_conf,
@@ -87,7 +87,7 @@ module mist_io #(parameter STRLEN=0, parameter PS2DIV=100)
 	input             ioctl_force_erase,
 	output reg        ioctl_download = 0, // signal indicating an active download
 	output reg        ioctl_erasing = 0,  // signal indicating an active erase
-	output reg  [4:0] ioctl_index,        // menu index used to upload the file
+	output reg  [7:0] ioctl_index,        // menu index used to upload the file
 	output reg        ioctl_wr = 0,
 	output reg [24:0] ioctl_addr,
 	output reg  [7:0] ioctl_dout
@@ -97,7 +97,7 @@ reg [7:0] b_data;
 reg [6:0] sbuf;
 reg [7:0] cmd;
 reg [2:0] bit_cnt;    // counts bits 0-7 0-7 ...
-reg [7:0] byte_cnt;   // counts bytes
+reg [9:0] byte_cnt;   // counts bytes
 reg [7:0] but_sw;
 reg [2:0] stick_idx;
 
@@ -183,7 +183,7 @@ always@(posedge SPI_SCK or posedge CONF_DATA0) begin
 
 		// finished reading command byte
       if(bit_cnt == 7) begin
-			if(byte_cnt != 8'd255) byte_cnt <= byte_cnt + 8'd1;
+			if(~&byte_cnt) byte_cnt <= byte_cnt + 8'd1;
 			if(byte_cnt == 0) begin
 				cmd <= spi_dout;
 
@@ -219,7 +219,7 @@ always@(posedge SPI_SCK or posedge CONF_DATA0) begin
 							ps2_kbd_wptr <= ps2_kbd_wptr + 1'd1;
 						end
 				
-					8'h15: status <= spi_dout;
+					8'h15: status[7:0] <= spi_dout;
 				
 					// send SD config IO -> FPGA
 					// flag that download begins
@@ -255,6 +255,9 @@ always@(posedge SPI_SCK or posedge CONF_DATA0) begin
 
 					// send image info
 					8'h1d: if(byte_cnt<5) img_size[(byte_cnt-1)<<3 +:8] <= spi_dout;
+
+					// status, 32bit version
+					8'h1e: if(byte_cnt<5) status[(byte_cnt-1)<<3 +:8] <= spi_dout;
 					default: ;
 				endcase
 			end
@@ -478,7 +481,7 @@ always@(posedge SPI_SCK, posedge SPI_SS2) begin
 		end
 
       // expose file (menu) index
-      if((cmd == UIO_FILE_INDEX) && (cnt == 15)) ioctl_index <= {sbuf[3:0], SPI_DI};
+      if((cmd == UIO_FILE_INDEX) && (cnt == 15)) ioctl_index <= {sbuf, SPI_DI};
 	end
 end
 

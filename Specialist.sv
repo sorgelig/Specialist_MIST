@@ -49,11 +49,21 @@ module Specialist
 assign LED = ~(ioctl_download | ioctl_erasing);
 
 `include "build_id.v"
-localparam CONF_STR = {"SPMX;;F0,RKS,Load Tape;S3,ODI,Mount Disk;O4,CPU Speed,2MHz,4MHz;O2,Model,Original,MX;O3,Disk (for MX),On,Off;T6,Cold Reset;V0,v2.20.",`BUILD_DATE};
+localparam CONF_STR =
+{
+	"SPMX;;",
+	"F0,RKS,Load Tape;",
+	"S0,ODI,Mount Disk;",
+	"O4,CPU Speed,2MHz,4MHz;",
+	"O23,Model,Original,MX & Disk,MX;",
+	"O78,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
+	"T6,Cold Reset;",
+	"V0,v2.20.",`BUILD_DATE
+};
 
 
 ///////////////////   ARM I/O   //////////////////
-wire  [7:0] status;
+wire [31:0] status;
 wire  [1:0] buttons;
 wire        scandoubler_disable;
 wire        ypbpr;
@@ -65,7 +75,7 @@ wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
 wire        ioctl_download;
 wire        ioctl_erasing;
-wire  [4:0] ioctl_index;
+wire  [7:0] ioctl_index;
 wire        rom_load =  (ioctl_download & (ioctl_index==0));
 wire        rks_load =  (ioctl_download & (ioctl_index==1));
 wire        odi_load =  (ioctl_download & (ioctl_index==2));
@@ -144,9 +154,9 @@ reg [7:0] mon;
 
 always @(posedge clk_sys) begin
 	if(status[0] | buttons[1] | reset_key[0] | rom_load | ioctl_erasing) begin
-		mx    <=  status[2];
-		mxd   <=  status[2] & ~status[3] & ~reset_key[1];
-		mon   <= ~status[2] ? 8'h1C : (~status[3] & reset_key[1]) ? 8'h0C : 8'h1D;
+		mx    <= (status[3:2] >0);
+		mxd   <= (status[3:2]==1) && ~reset_key[1];
+		mon   <= (status[3:2]==0) ? 8'h1C : ((status[3:2]==1) && reset_key[1]) ? 8'h0C : 8'h1D;
 		reset <= 1;
 	end else begin
 		reset <= 0;
@@ -292,6 +302,7 @@ video video
 	.addr(addrbus),
 	.din(cpu_o),
 	.we(~cpu_wr_n && !page),
+	.scale(status[8:7]),
 	.color(mx ? color_mx : {1'b0, ~color[1], ~color[2], ~color[0], 4'b0000})
 );
 
