@@ -52,7 +52,7 @@ assign LED = ~(ioctl_download | ioctl_erasing);
 localparam CONF_STR =
 {
 	"SPMX;;",
-	"F0,RKS,Load Tape;",
+	"F1,RKS,Load Tape;",
 	"S0,ODI,Mount Disk;",
 	"O4,CPU Speed,2MHz,4MHz;",
 	"O23,Model,Original,MX & Disk,MX;",
